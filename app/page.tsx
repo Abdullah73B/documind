@@ -130,6 +130,7 @@ export default function Home() {
         await supabase.from("documents").update({ processing_status: "error", processing_error: reason }).eq("id", documentRow.id);
         setNotice("Uploaded " + file.name + " but couldn't extract its text: " + reason);
       }
+    }
     await loadWorkspace(user.id); setUploading(false); setActive("Documents");
     if (uploaded) setNotice(uploaded + " file(s) uploaded and text extracted. You can now search their contents.");
   }

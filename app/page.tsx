@@ -11,13 +11,14 @@ const formatSize = (bytes: number) => bytes > 1048576 ? (bytes / 1048576).toFixe
 
 function AuthScreen() {
   const supabase = useMemo(() => createClient(), []);
-  const [mode, setMode] = useState<"signin" | "signup">("signup");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMessage("");
+    if (mode === "forgot") { const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin }); setBusy(false); setMessage(error ? error.message : "If an account exists for this email, a password reset link has been sent. Check your inbox."); return; }
     const result = mode === "signup"
       ? await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
       : await supabase.auth.signInWithPassword({ email, password });
@@ -26,7 +27,7 @@ function AuthScreen() {
     else if (mode === "signup" && !result.data.session) setMessage("Account created. Check your email to confirm, then sign in.");
     else setMessage("Signed in successfully. Loading your workspace…");
   }
-  return <main className="auth-shell"><div className="auth-card"><div className="brand auth-brand"><div className="brand-mark"><Command size={19}/></div><span>docu<span className="brand-light">mind</span></span></div><div className="auth-icon"><LockKeyhole size={21}/></div><h1>{mode === "signup" ? "Create your workspace" : "Welcome back"}</h1><p className="subheading">Your documents stay private and belong to you.</p><form onSubmit={submit} className="auth-form"><label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters" minLength={8} required autoComplete={mode === "signup" ? "new-password" : "current-password"}/></label><button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create free account" : "Sign in"}</button></form>{message && <div className="notice auth-message" role="status">{message}</div>}<p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to DocuMind?"} <button onClick={()=>{setMode(mode==="signup"?"signin":"signup");setMessage("");}}>{mode==="signup"?"Sign in":"Create an account"}</button></p><small className="auth-foot">Free to use · No paid AI API · Private file storage</small></div></main>;
+  return <main className="auth-shell"><div className="auth-card"><div className="brand auth-brand"><div className="brand-mark"><Command size={19}/></div><span>docu<span className="brand-light">mind</span></span></div><div className="auth-icon"><LockKeyhole size={21}/></div><h1>{mode === "signup" ? "Create your workspace" : mode === "forgot" ? "Reset your password" : "Welcome back"}</h1><p className="subheading">{mode === "forgot" ? "Enter your account email and we’ll send you a secure reset link." : "Your documents stay private and belong to you."}</p><form onSubmit={submit} className="auth-form"><label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email"/></label>{mode !== "forgot" && <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters" minLength={8} required autoComplete={mode === "signup" ? "new-password" : "current-password"}/></label>}<button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create free account" : mode === "forgot" ? "Send reset link" : "Sign in"}</button></form>{mode === "signin" && <p className="auth-switch"><button onClick={()=>{setMode("forgot");setMessage("");}}>Forgot password?</button></p>}{message && <div className="notice auth-message" role="status">{message}</div>}<p className="auth-switch">{mode === "signup" ? "Already have an account?" : "Remembered your password?"} <button onClick={()=>{setMode(mode==="signup"?"signin":"signin");setMessage("");}}>{mode==="signup"?"Sign in":"Back to sign in"}</button>{mode==="signin" && <> · <button onClick={()=>{setMode("signup");setMessage("");}}>Create an account</button></>}</p><small className="auth-foot">Free to use · No paid AI API · Private file storage</small></div></main>;
 }
 
 
@@ -62,7 +63,13 @@ function makeChunks(pages: ExtractedPage[]) {
   return chunks;
 }
 
-export default function Home() {
+
+function PasswordRecovery({onDone}:{onDone:()=>void}) {
+ const supabase=useMemo(()=>createClient(),[]); const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [busy,setBusy]=useState(false); const [message,setMessage]=useState("");
+ async function submit(e:React.FormEvent){e.preventDefault();if(password.length<8){setMessage("Use at least 8 characters.");return;}if(password!==confirm){setMessage("The passwords do not match.");return;}setBusy(true);const {error}=await supabase.auth.updateUser({password});setBusy(false);if(error){setMessage(error.message);return;}setMessage("Password updated successfully. You can now use your new password.");setTimeout(()=>onDone(),900);}
+ return <main className="auth-shell"><div className="auth-card"><div className="brand auth-brand"><div className="brand-mark"><Command size={19}/></div><span>docu<span className="brand-light">mind</span></span></div><div className="auth-icon"><LockKeyhole size={21}/></div><h1>Choose a new password</h1><p className="subheading">Set a new password for your DocuMind account.</p><form onSubmit={submit} className="auth-form"><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required autoComplete="new-password"/></label><label>Confirm new password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={8} required autoComplete="new-password"/></label><button className="auth-submit" disabled={busy}>{busy?"Updating…":"Update password"}</button></form>{message&&<div className="notice auth-message" role="status">{message}</div>}</div></main>;
+}
+\nexport default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -78,6 +85,7 @@ export default function Home() {
   const [evidence, setEvidence] = useState<{id:string;document_id:string;page_number:number|null;content:string}[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<{name:string;text:string;path:string}|null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const loadWorkspace = useCallback(async (userId: string) => {
     const [{ data: documentRows, error: docError }, { data: collectionRows, error: collectionError }] = await Promise.all([

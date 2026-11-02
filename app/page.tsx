@@ -77,6 +77,7 @@ export default function Home() {
   const [askQuery, setAskQuery] = useState("");
   const [evidence, setEvidence] = useState<{id:string;document_id:string;page_number:number|null;content:string}[]>([]);
   const [searching, setSearching] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<{name:string;text:string;path:string}|null>(null);
 
   const loadWorkspace = useCallback(async (userId: string) => {
     const [{ data: documentRows, error: docError }, { data: collectionRows, error: collectionError }] = await Promise.all([
@@ -147,6 +148,12 @@ export default function Home() {
     if (!data?.length) setNotice("No matching passages found in your extracted documents.");
   }
 
+  async function openDocument(d: Doc) { const {data,error}=await supabase.from("documents").select("extracted_text").eq("id",d.id).single(); if(error){setNotice(error.message);return;} setSelectedDoc({name:d.name,text:data.extracted_text||"No extracted text is available.",path:d.storage_path}); }
+
+  async function downloadDocument(d: Doc) { const {data,error}=await supabase.storage.from("documents").createSignedUrl(d.storage_path,60); if(error||!data?.signedUrl){setNotice(error?.message||"Could not create download link.");return;} window.open(data.signedUrl,"_blank","noopener,noreferrer"); }
+
+  async function moveDocument(d: Doc, collectionId: string) { const {error}=await supabase.from("documents").update({collection_id:collectionId||null}).eq("id",d.id); if(error)setNotice(error.message); else if(user)await loadWorkspace(user.id); }
+
   async function createCollection() {
     const name = window.prompt("Name your collection");
     if (!name?.trim() || !user) return;
@@ -181,7 +188,7 @@ export default function Home() {
         {evidence.length>0 && <section className="evidence-results"><div className="evidence-results-head"><b>Matching passages</b><span>{evidence.length} results</span></div>{evidence.map(item=>{const doc=docs.find(d=>d.id===item.document_id);return <article className="evidence-result" key={item.id}><div className="evidence-source"><FileText size={14}/><b>{doc?.name||"Document"}</b><span>{item.page_number ? "Page "+item.page_number : "DOCX passage"}</span></div><p>{item.content}</p></article>;})}</section>}
         <div className="section-heading"><div><h2>Recent documents</h2><p>Your latest additions and updates</p></div><button className="text-button" onClick={()=>{setActive("Documents");setCollection("All documents")}}>View all <ArrowUpRight size={15}/></button></div>
         <div className="toolbar"><div className="searchbox"><Search size={17}/><input placeholder="Search documents..." value={query} onChange={e=>setQuery(e.target.value)}/></div><button className="filter-button" onClick={()=>setNotice("Showing documents in "+collection)}><Filter size={16}/>{collection}</button></div>
-        <div className="document-table"><div className="table-head"><span>NAME</span><span>COLLECTION</span><span>LAST UPDATED</span><span>STATUS</span><span></span></div>{filtered.length ? filtered.map(d=><div className="document-row" key={d.id}><div className="file-name"><div className={`file-icon ${d.color}`}><File size={17}/></div><div><b>{d.name}</b><small>{d.type} · {d.size}</small></div></div><span className="collection-cell">{d.collection}</span><span className="updated-cell">{d.updated}</span><span><i className={d.status==="Ready"?"status ready":"status processing"}/>{d.status}</span><button className="row-more" onClick={async()=>{const {error}=await supabase.storage.from("documents").remove([d.storage_path]);if(!error){await supabase.from("documents").delete().eq("id",d.id);await loadWorkspace(user.id);setNotice("Document deleted.");}else setNotice(error.message);}} aria-label={"Delete "+d.name}><MoreHorizontal size={18}/></button></div>) : <div className="empty-state"><UploadCloud size={22}/><p>No documents yet. Add a PDF or DOCX to get started.</p></div>}</div>
+        <div className="document-table"><div className="table-head"><span>NAME</span><span>COLLECTION</span><span>LAST UPDATED</span><span>STATUS</span><span></span></div>{filtered.length ? filtered.map(d=><div className="document-row" key={d.id}><div className="file-name"><div className={`file-icon ${d.color}`}><File size={17}/></div><div><b>{d.name}</b><small>{d.type} · {d.size}</small></div></div><select className="row-select" value={d.collection_id || ""} onChange={e=>void moveDocument(d,e.target.value)} aria-label="Move document"><option value="">Unsorted</option>{collections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><span className="updated-cell">{d.updated}</span><span><i className={d.status==="Ready"?"status ready":"status processing"}/>{d.status}</span><div className="row-actions"><button title="Preview extracted text" onClick={()=>void openDocument(d)}><FileText size={16}/></button><button title="Download original" onClick={()=>void downloadDocument(d)}><Download size={16}/></button><button title="Delete document" onClick={async()=>{if(!window.confirm("Delete "+d.name+" permanently?"))return;const {error}=await supabase.storage.from("documents").remove([d.storage_path]);if(!error){const result=await supabase.from("documents").delete().eq("id",d.id);if(result.error)setNotice(result.error.message);else{await loadWorkspace(user.id);setNotice("Document deleted.");}}else setNotice(error.message);}}><Trash2 size={16}/></button></div></div>) : <div className="empty-state"><UploadCloud size={22}/><p>No documents yet. Add a PDF or DOCX to get started.</p></div>}</div>
         <div className="bottom-note"><ShieldCheck size={15}/> Private files · User-scoped database access · No paid AI API connected</div>
       </div>
     </section>

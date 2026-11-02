@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Plus, FileText, FolderOpen, LayoutDashboard, Settings, Bell, ChevronDown, MoreHorizontal, UploadCloud, Sparkles, ShieldCheck, ArrowUpRight, File, Menu, X, Command, Filter, LogOut, LockKeyhole } from "lucide-react";
+import { Search, Plus, FileText, FolderOpen, LayoutDashboard, Settings, Bell, ChevronDown, MoreHorizontal, Download, Trash2, UploadCloud, Sparkles, ShieldCheck, ArrowUpRight, File, Menu, X, Command, Filter, LogOut, LockKeyhole } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
-type Doc = { id: string; name: string; type: string; size: string; updated: string; status: string; collection: string; color: string; storage_path: string };
+type Doc = { id: string; name: string; type: string; size: string; updated: string; status: string; collection: string; collection_id: string | null; color: string; storage_path: string };
 type Collection = { id: string; name: string };
 const formatSize = (bytes: number) => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
 
@@ -90,7 +90,7 @@ export default function Home() {
     setCollections(cols);
     setDocs((documentRows || []).map((d: any) => {
       const col = cols.find(c => c.id === d.collection_id);
-      return { id: d.id, name: d.original_filename || d.title, type: d.mime_type.includes("pdf") ? "PDF" : "DOCX", size: formatSize(Number(d.file_size_bytes)), updated: new Date(d.created_at).toLocaleDateString(), status: d.processing_status === "ready" ? "Ready" : d.processing_status === "error" ? "Needs attention" : "Uploaded", collection: col?.name || "Unsorted", color: d.mime_type.includes("pdf") ? "violet" : "blue", storage_path: d.storage_path };
+      return { id: d.id, name: d.original_filename || d.title, type: d.mime_type.includes("pdf") ? "PDF" : "DOCX", size: formatSize(Number(d.file_size_bytes)), updated: new Date(d.created_at).toLocaleDateString(), status: d.processing_status === "ready" ? "Ready" : d.processing_status === "error" ? "Needs attention" : "Uploaded", collection: col?.name || "Unsorted", collection_id: d.collection_id, color: d.mime_type.includes("pdf") ? "violet" : "blue", storage_path: d.storage_path };
     }));
   }, [supabase]);
 

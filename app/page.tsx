@@ -29,7 +29,39 @@ function AuthScreen() {
   return <main className="auth-shell"><div className="auth-card"><div className="brand auth-brand"><div className="brand-mark"><Command size={19}/></div><span>docu<span className="brand-light">mind</span></span></div><div className="auth-icon"><LockKeyhole size={21}/></div><h1>{mode === "signup" ? "Create your workspace" : "Welcome back"}</h1><p className="subheading">Your documents stay private and belong to you.</p><form onSubmit={submit} className="auth-form"><label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters" minLength={8} required autoComplete={mode === "signup" ? "new-password" : "current-password"}/></label><button className="auth-submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create free account" : "Sign in"}</button></form>{message && <div className="notice auth-message" role="status">{message}</div>}<p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to DocuMind?"} <button onClick={()=>{setMode(mode==="signup"?"signin":"signup");setMessage("");}}>{mode==="signup"?"Sign in":"Create an account"}</button></p><small className="auth-foot">Free to use · No paid AI API · Private file storage</small></div></main>;
 }
 
-export default function Home() {
+
+type ExtractedPage = { page: number | null; text: string };
+async function extractDocument(file: File): Promise<ExtractedPage[]> {
+  if (file.name.toLowerCase().endsWith(".pdf")) {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages: ExtractedPage[] = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const text = content.items.map((item: any) => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
+      if (text) pages.push({ page: pageNumber, text });
+    }
+    return pages;
+  }
+  const mammoth = await import("mammoth/mammoth.browser");
+  const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  const text = result.value.replace(/\s+/g, " ").trim();
+  return text ? [{ page: null, text }] : [];
+}
+function makeChunks(pages: ExtractedPage[]) {
+  const chunks: { chunk_index: number; page_number: number | null; content: string; token_count: number }[] = [];
+  for (const page of pages) {
+    const words = page.text.split(/\s+/);
+    for (let start = 0; start < words.length; start += 155) {
+      const content = words.slice(start, start + 180).join(" ").trim();
+      if (content.length > 30) chunks.push({ chunk_index: chunks.length, page_number: page.page, content, token_count: Math.ceil(content.length / 4) });
+    }
+  }
+  return chunks;
+}
+\nexport default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -77,12 +109,25 @@ export default function Home() {
       const path = user.id + "/" + crypto.randomUUID() + "-" + file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const { error: storageError } = await supabase.storage.from("documents").upload(path, file, { contentType: file.type || (ext === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), upsert: false });
       if (storageError) { setNotice("Upload failed for " + file.name + ": " + storageError.message); continue; }
-      const { error: rowError } = await supabase.from("documents").insert({ title: file.name.replace(/\.(pdf|docx)$/i, ""), original_filename: file.name, mime_type: ext === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document", file_size_bytes: file.size, storage_path: path, processing_status: "uploaded" });
-      if (rowError) { await supabase.storage.from("documents").remove([path]); setNotice("File record failed for " + file.name + ": " + rowError.message); }
-      else uploaded++;
-    }
+      const { data: documentRow, error: rowError } = await supabase.from("documents").insert({ title: file.name.replace(/\.(pdf|docx)$/i, ""), original_filename: file.name, mime_type: ext === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document", file_size_bytes: file.size, storage_path: path, processing_status: "processing" }).select("id").single();
+      if (rowError || !documentRow) { await supabase.storage.from("documents").remove([path]); setNotice("File record failed for " + file.name + ": " + (rowError?.message || "Unknown database error")); continue; }
+      try {
+        const pages = await extractDocument(file);
+        if (!pages.length) throw new Error("No selectable text found. This may be a scanned PDF; OCR is not available yet.");
+        const chunks = makeChunks(pages);
+        const { error: chunkError } = await supabase.from("document_chunks").insert(chunks.map(chunk => ({ ...chunk, document_id: documentRow.id })));
+        if (chunkError) throw chunkError;
+        const extractedText = pages.map(p => p.text).join("\\n\\n");
+        const { error: updateError } = await supabase.from("documents").update({ extracted_text: extractedText, page_count: ext === "pdf" ? pages.length : null, processing_status: "ready", processing_error: null }).eq("id", documentRow.id);
+        if (updateError) throw updateError;
+        uploaded++;
+      } catch (processingError) {
+        const reason = processingError instanceof Error ? processingError.message : "Text extraction failed";
+        await supabase.from("documents").update({ processing_status: "error", processing_error: reason }).eq("id", documentRow.id);
+        setNotice("Uploaded " + file.name + " but couldn't extract its text: " + reason);
+      }
     await loadWorkspace(user.id); setUploading(false); setActive("Documents");
-    if (uploaded) setNotice(uploaded + " file(s) securely uploaded to your private workspace. Text extraction is the next processing step.");
+    if (uploaded) setNotice(uploaded + " file(s) uploaded and text extracted. You can now search their contents.");
   }
 
   async function createCollection() {
@@ -114,8 +159,8 @@ export default function Home() {
       <div className="content">
         <div className="welcome-row"><div><div className="eyebrow">YOUR PRIVATE WORKSPACE</div><h1>{active==="Overview"?"Good evening.":active}</h1><p className="subheading">{active==="Overview"?"Your knowledge, organised and ready to explore.":"Manage and explore the documents in your workspace."}</p></div><label className="primary-button"><Plus size={17}/>{uploading?"Uploading…":"Add documents"}<input type="file" accept=".pdf,.docx" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value="";}} hidden disabled={uploading}/></label></div>
         {notice && <div className="notice" role="status">{notice}<button onClick={()=>setNotice("")}><X size={15}/></button></div>}
-        <div className="stats-grid"><div className="stat-card"><div className="stat-icon lavender"><FileText size={18}/></div><span>Total documents</span><strong>{docs.length}</strong><small>Saved in your workspace</small></div><div className="stat-card"><div className="stat-icon mint"><FolderOpen size={18}/></div><span>Collections</span><strong>{collections.length}</strong><small>Your organised knowledge</small></div><div className="stat-card"><div className="stat-icon peach"><Sparkles size={18}/></div><span>Ready to ask</span><strong>{docs.filter(d=>d.status==="Ready").length}</strong><small>Text extraction pending for new files</small></div></div>
-        <section className="ask-card"><div className="ask-icon"><Sparkles size={19}/></div><div className="ask-copy"><h2>Ask your documents</h2><p>Evidence-linked answers are being built next. Your files are now stored privately.</p></div><button className="ask-button" onClick={()=>setNotice("Document Q&A will unlock after the free, local-first text extraction and evidence search pipeline is added.")}>Coming next <ArrowUpRight size={16}/></button><div className="ask-glow"/></section>
+        <div className="stats-grid"><div className="stat-card"><div className="stat-icon lavender"><FileText size={18}/></div><span>Total documents</span><strong>{docs.length}</strong><small>Saved in your workspace</small></div><div className="stat-card"><div className="stat-icon mint"><FolderOpen size={18}/></div><span>Collections</span><strong>{collections.length}</strong><small>Your organised knowledge</small></div><div className="stat-card"><div className="stat-icon peach"><Sparkles size={18}/></div><span>Ready to ask</span><strong>{docs.filter(d=>d.status==="Ready").length}</strong><small>Extracted text is searchable</small></div></div>
+        <section className="ask-card"><div className="ask-icon"><Sparkles size={19}/></div><div className="ask-copy"><h2>Ask your documents</h2><p>Search extracted text and inspect matching passages with page references.</p></div><button className="ask-button" onClick={()=>setNotice("Document Q&A will unlock after the free, local-first text extraction and evidence search pipeline is added.")}>Evidence search <ArrowUpRight size={16}/></button><div className="ask-glow"/></section>
         <div className="section-heading"><div><h2>Recent documents</h2><p>Your latest additions and updates</p></div><button className="text-button" onClick={()=>{setActive("Documents");setCollection("All documents")}}>View all <ArrowUpRight size={15}/></button></div>
         <div className="toolbar"><div className="searchbox"><Search size={17}/><input placeholder="Search documents..." value={query} onChange={e=>setQuery(e.target.value)}/></div><button className="filter-button" onClick={()=>setNotice("Showing documents in "+collection)}><Filter size={16}/>{collection}</button></div>
         <div className="document-table"><div className="table-head"><span>NAME</span><span>COLLECTION</span><span>LAST UPDATED</span><span>STATUS</span><span></span></div>{filtered.length ? filtered.map(d=><div className="document-row" key={d.id}><div className="file-name"><div className={`file-icon ${d.color}`}><File size={17}/></div><div><b>{d.name}</b><small>{d.type} · {d.size}</small></div></div><span className="collection-cell">{d.collection}</span><span className="updated-cell">{d.updated}</span><span><i className={d.status==="Ready"?"status ready":"status processing"}/>{d.status}</span><button className="row-more" onClick={async()=>{const {error}=await supabase.storage.from("documents").remove([d.storage_path]);if(!error){await supabase.from("documents").delete().eq("id",d.id);await loadWorkspace(user.id);setNotice("Document deleted.");}else setNotice(error.message);}} aria-label={"Delete "+d.name}><MoreHorizontal size={18}/></button></div>) : <div className="empty-state"><UploadCloud size={22}/><p>No documents yet. Add a PDF or DOCX to get started.</p></div>}</div>

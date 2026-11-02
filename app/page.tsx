@@ -61,7 +61,8 @@ function makeChunks(pages: ExtractedPage[]) {
   }
   return chunks;
 }
-\nexport default function Home() {
+
+export default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);

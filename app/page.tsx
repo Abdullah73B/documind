@@ -73,7 +73,10 @@ export default function Home() {
   const [collection, setCollection] = useState("All documents");
   const [notice, setNotice] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
-  const [uploading, setUploading] = useState(false);\n  const [askQuery, setAskQuery] = useState("");\n  const [evidence, setEvidence] = useState<{id:string;document_id:string;page_number:number|null;content:string}[]>([]);\n  const [searching, setSearching] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [askQuery, setAskQuery] = useState("");
+  const [evidence, setEvidence] = useState<{id:string;document_id:string;page_number:number|null;content:string}[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const loadWorkspace = useCallback(async (userId: string) => {
     const [{ data: documentRows, error: docError }, { data: collectionRows, error: collectionError }] = await Promise.all([

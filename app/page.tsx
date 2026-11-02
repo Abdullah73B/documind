@@ -104,7 +104,8 @@ function PasswordRecovery({onDone}:{onDone:()=>void}) {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { setUser(data.user); if (data.user) void loadWorkspace(data.user.id); setAuthLoading(false); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       setUser(session?.user ?? null);
       if (session?.user) void loadWorkspace(session.user.id); else { setDocs([]); setCollections([]); }
     });

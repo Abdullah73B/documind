@@ -69,7 +69,8 @@ function PasswordRecovery({onDone}:{onDone:()=>void}) {
  async function submit(e:React.FormEvent){e.preventDefault();if(password.length<8){setMessage("Use at least 8 characters.");return;}if(password!==confirm){setMessage("The passwords do not match.");return;}setBusy(true);const {error}=await supabase.auth.updateUser({password});setBusy(false);if(error){setMessage(error.message);return;}setMessage("Password updated successfully. You can now use your new password.");setTimeout(()=>onDone(),900);}
  return <main className="auth-shell"><div className="auth-card"><div className="brand auth-brand"><div className="brand-mark"><Command size={19}/></div><span>docu<span className="brand-light">mind</span></span></div><div className="auth-icon"><LockKeyhole size={21}/></div><h1>Choose a new password</h1><p className="subheading">Set a new password for your DocuMind account.</p><form onSubmit={submit} className="auth-form"><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required autoComplete="new-password"/></label><label>Confirm new password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} minLength={8} required autoComplete="new-password"/></label><button className="auth-submit" disabled={busy}>{busy?"Updating…":"Update password"}</button></form>{message&&<div className="notice auth-message" role="status">{message}</div>}</div></main>;
 }
-\nexport default function Home() {
+
+export default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);

@@ -72,7 +72,7 @@ function makeChunks(pages: ExtractedPage[]) {
   const [collection, setCollection] = useState("All documents");
   const [notice, setNotice] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);\n  const [askQuery, setAskQuery] = useState("");\n  const [evidence, setEvidence] = useState<{id:string;document_id:string;page_number:number|null;content:string}[]>([]);\n  const [searching, setSearching] = useState(false);
 
   const loadWorkspace = useCallback(async (userId: string) => {
     const [{ data: documentRows, error: docError }, { data: collectionRows, error: collectionError }] = await Promise.all([
@@ -130,6 +130,18 @@ function makeChunks(pages: ExtractedPage[]) {
     if (uploaded) setNotice(uploaded + " file(s) uploaded and text extracted. You can now search their contents.");
   }
 
+  async function searchEvidence() {
+    const term = askQuery.trim();
+    if (term.length < 3) { setNotice("Enter at least 3 characters to search document text."); return; }
+    setSearching(true); setEvidence([]);
+    const safeTerm = term.replace(/[,%_]/g, " ").slice(0, 100);
+    const { data, error } = await supabase.from("document_chunks").select("id,document_id,page_number,content").ilike("content", "%" + safeTerm + "%").limit(12);
+    setSearching(false);
+    if (error) { setNotice("Evidence search failed: " + error.message); return; }
+    setEvidence(data || []);
+    if (!data?.length) setNotice("No matching passages found in your extracted documents.");
+  }
+
   async function createCollection() {
     const name = window.prompt("Name your collection");
     if (!name?.trim() || !user) return;
@@ -160,7 +172,8 @@ function makeChunks(pages: ExtractedPage[]) {
         <div className="welcome-row"><div><div className="eyebrow">YOUR PRIVATE WORKSPACE</div><h1>{active==="Overview"?"Good evening.":active}</h1><p className="subheading">{active==="Overview"?"Your knowledge, organised and ready to explore.":"Manage and explore the documents in your workspace."}</p></div><label className="primary-button"><Plus size={17}/>{uploading?"Uploading…":"Add documents"}<input type="file" accept=".pdf,.docx" multiple onChange={e=>{void addFiles(e.target.files);e.currentTarget.value="";}} hidden disabled={uploading}/></label></div>
         {notice && <div className="notice" role="status">{notice}<button onClick={()=>setNotice("")}><X size={15}/></button></div>}
         <div className="stats-grid"><div className="stat-card"><div className="stat-icon lavender"><FileText size={18}/></div><span>Total documents</span><strong>{docs.length}</strong><small>Saved in your workspace</small></div><div className="stat-card"><div className="stat-icon mint"><FolderOpen size={18}/></div><span>Collections</span><strong>{collections.length}</strong><small>Your organised knowledge</small></div><div className="stat-card"><div className="stat-icon peach"><Sparkles size={18}/></div><span>Ready to ask</span><strong>{docs.filter(d=>d.status==="Ready").length}</strong><small>Extracted text is searchable</small></div></div>
-        <section className="ask-card"><div className="ask-icon"><Sparkles size={19}/></div><div className="ask-copy"><h2>Ask your documents</h2><p>Search extracted text and inspect matching passages with page references.</p></div><button className="ask-button" onClick={()=>setNotice("Document Q&A will unlock after the free, local-first text extraction and evidence search pipeline is added.")}>Evidence search <ArrowUpRight size={16}/></button><div className="ask-glow"/></section>
+        <section className="ask-card"><div className="ask-icon"><Sparkles size={19}/></div><div className="ask-copy"><h2>Search your evidence</h2><p>Find matching passages in your PDFs and DOCX files.</p><div className="evidence-search"><input value={askQuery} onChange={e=>setAskQuery(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void searchEvidence();}} placeholder="e.g. project objectives, payment terms..."/><button onClick={()=>void searchEvidence()} disabled={searching}>{searching?"Searching…":"Search"}</button></div></div><div className="ask-glow"/></section>
+        {evidence.length>0 && <section className="evidence-results"><div className="evidence-results-head"><b>Matching passages</b><span>{evidence.length} results</span></div>{evidence.map(item=>{const doc=docs.find(d=>d.id===item.document_id);return <article className="evidence-result" key={item.id}><div className="evidence-source"><FileText size={14}/><b>{doc?.name||"Document"}</b><span>{item.page_number ? "Page "+item.page_number : "DOCX passage"}</span></div><p>{item.content}</p></article>;})}</section>}
         <div className="section-heading"><div><h2>Recent documents</h2><p>Your latest additions and updates</p></div><button className="text-button" onClick={()=>{setActive("Documents");setCollection("All documents")}}>View all <ArrowUpRight size={15}/></button></div>
         <div className="toolbar"><div className="searchbox"><Search size={17}/><input placeholder="Search documents..." value={query} onChange={e=>setQuery(e.target.value)}/></div><button className="filter-button" onClick={()=>setNotice("Showing documents in "+collection)}><Filter size={16}/>{collection}</button></div>
         <div className="document-table"><div className="table-head"><span>NAME</span><span>COLLECTION</span><span>LAST UPDATED</span><span>STATUS</span><span></span></div>{filtered.length ? filtered.map(d=><div className="document-row" key={d.id}><div className="file-name"><div className={`file-icon ${d.color}`}><File size={17}/></div><div><b>{d.name}</b><small>{d.type} · {d.size}</small></div></div><span className="collection-cell">{d.collection}</span><span className="updated-cell">{d.updated}</span><span><i className={d.status==="Ready"?"status ready":"status processing"}/>{d.status}</span><button className="row-more" onClick={async()=>{const {error}=await supabase.storage.from("documents").remove([d.storage_path]);if(!error){await supabase.from("documents").delete().eq("id",d.id);await loadWorkspace(user.id);setNotice("Document deleted.");}else setNotice(error.message);}} aria-label={"Delete "+d.name}><MoreHorizontal size={18}/></button></div>) : <div className="empty-state"><UploadCloud size={22}/><p>No documents yet. Add a PDF or DOCX to get started.</p></div>}</div>
